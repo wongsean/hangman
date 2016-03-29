@@ -12,7 +12,8 @@ def build_tree chars, words, depth=1
 		word = words.first
 		return {
 			:message => :found,
-			:optimun => chars.reject {|char| !word.include? char}
+			:optimun => chars.reject {|char| !word.include? char},
+			:value => word
 		}
 	end
 
@@ -25,7 +26,7 @@ def build_tree chars, words, depth=1
 	chars -= [optimum_c] # 不要用Array#delete
 	#puts optimum_c # debug
 
-	reg = Regexp.new("[^#{optimum_c}]")
+	reg = Regexp.new("[#{chars.join}]")
 	tree = words.group_by do |word|
 		word.gsub reg, '*'
 	end
@@ -39,7 +40,7 @@ def build_tree chars, words, depth=1
 	{
 		:message => :continue,
 		:optimun => optimum_c,
-		:subtree => tree
+		:value => tree
 	}
 end
 
