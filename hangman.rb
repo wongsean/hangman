@@ -1,4 +1,5 @@
 require 'json'
+require_relative 'hangman/game'
 
 module Hangman
 	class << self
@@ -51,8 +52,3 @@ module Hangman
 	end
 end
 
-time = Time.now
-json = Hangman.build_decision_tree("./data/en.txt").to_json
-File.open("./tree.json", "w") { |file| file.write json }
-duration = Time.now - time
-puts duration

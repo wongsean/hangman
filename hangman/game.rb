@@ -2,39 +2,39 @@ require 'httparty'
 require 'json'
 
 module Hangman
-	class game
+	class Game
 		def initialize
 			time = Time.now
 			@tree = JSON.parse(File.read('./tree.json'))
-			@highest_score = File.read('./scores.txt').strip.split.max { |a, b| a.to_i <=> b.to_i }
+			@highest_score = File.read('./scores.txt').strip.split.max { |a, b| a.to_i <=> b.to_i }.to_i
 			duration = Time.now - time
-			puts "took #{duration} seconds to load tree and highest_score"
+			puts "took #{duration} seconds to load tree and highest score"
 		end
 
 		def play
 			init_game
+			puts '===== new game ====='
 			until @total_word_count == 80
 				next_word
 				guess_word
 				get_result
+
+				# uncomment to get high score
+				# return unless @total_word_count - @total_correct <= 1
 			end
 			submit_result if @score > @highest_score
 		end
-
-		private :init_game, :next_word, :guess_word, :guess, :get_result, :submit_result, :post
 
 		def init_game
 			data = {
 				'playerId' => `git config --global user.email`.strip,
 			  'action' => 'startGame'
 			}
-			rbody = post data
-			@tree_node = @tree
-			@session_id = rbody['sessionId']
+			resp_body = post data
+			@session_id = resp_body['sessionId']
 			@total_word_count = 0
 			@total_correct = 0
 			@total_wrong = 0
-			@current_wrong = 0
 			@score = 0
 		end
 
@@ -44,15 +44,20 @@ module Hangman
 				'action' => 'nextWord'
 			}
 			resp_body = post data
-			@word = rbody['data']['word']
+			@word = resp_body['data']['word']
 			@total_word_count = resp_body['data']['totalWordCount']
 			puts '-' * 15 + " #{@total_word_count} #{@word} " + '-' * 15
 		end
 
 		def guess_word
-			until @current_wrong == 10 || @tree_node[@word]['message'] == 'found'
+			@tree_node = @tree
+			@current_wrong = 0
+			until @current_wrong == 10 || @tree_node[@word]['message'] == 'completed'
 				guess @tree_node[@word]['optimum']
-				@tree_node = @tree_node[@word]['value']
+				if @tree_node[@word].nil?
+					puts "#{@word}:, this word cannot be found in word list, pass..."
+					return
+				end
 			end
 			puts @current_wrong == 10 ? 'WRONG!' : "CORRECT! it's #{@word}"
 			return @current_wrong == 10 ? false : true
@@ -65,10 +70,11 @@ module Hangman
 				'guess' => char
 			}
 			resp_body = post data
-			puts "guess #{tree[@word]['optimum']}, return #{rbody['data']['word']}, wrong count: #{rbody['data']['wrongGuessCountOfCurrentWord']}"
+			puts "guess #{@tree_node[@word]['optimum']}, return #{resp_body['data']['word']}, wrong count: #{resp_body['data']['wrongGuessCountOfCurrentWord']}"
 
+			@tree_node = @tree_node[@word]['value']
 			@word = resp_body['data']['word']
-			@current_wrong = rbody['data']['wrongGuessCountOfCurrentWord']
+			@current_wrong = resp_body['data']['wrongGuessCountOfCurrentWord']
 		end
 
 		def get_result
@@ -81,7 +87,8 @@ module Hangman
 			@total_correct = resp_body['data']['correctWordCount']
 			@total_wrong = resp_body['data']['totalWrongGuessCount']
 			@score = resp_body['data']['score']
-			puts <<-EOB.gsub(/^\s+\|/, "\n")
+			puts <<-EOB.gsub(/^\s+\|/, '')
+				|result:
 				|totalWordCount: #{@total_word_count} 
 				|correctWordCount: #{@total_correct}
 				|totalWrongGuessCount: #{@total_wrong}
@@ -95,17 +102,28 @@ module Hangman
 				'sessionId' => @session_id,
 				'action' => 'submitResult'
 			}
-			rbody = post data
-			puts <<-EOB.gsub(/^\s+\|/, "\n")
+			resp_body = post data
+			puts <<-EOB.gsub(/^\s+\|/, '')
 				|
 				|-----------------------------------------------------
 				|submitted!
-				|totalWordCount: #{rbody['data']['totalWordCount']} 
-				|correctWordCount: #{rbody['data']['correctWordCount']}
-				|totalWrongGuessCount: #{rbody['data']['totalWrongGuessCount']}
-				|score: #{rbody['data']['score']}
+				|totalWordCount: #{resp_body['data']['totalWordCount']} 
+				|correctWordCount: #{resp_body['data']['correctWordCount']}
+				|totalWrongGuessCount: #{resp_body['data']['totalWrongGuessCount']}
+				|score: #{resp_body['data']['score']}
 			EOB
 			File.open('./scores.txt', 'a') { |file| file.puts @score }
+			#File.open('./submit.txt', "a") do |file|  
+			#	file.puts <<-EOB.gsub(/^\s+\|/, '')
+			#		|-----------------------------------------------------
+			#		|submitted!
+			#		|totalWordCount: #{resp_body['data']['totalWordCount']} 
+			#		|correctWordCount: #{resp_body['data']['correctWordCount']}
+			#		|totalWrongGuessCount: #{resp_body['data']['totalWrongGuessCount']}
+			#		|score: #{resp_body['data']['score']}
+			#	EOB
+			end
+
 		end
 
 		def post data
@@ -120,20 +138,15 @@ module Hangman
 					resp = HTTParty.post url, option	
 					break if resp && resp.success?
 					puts "post action not success, try again"
-				rescue Net::ReadTimeout
+				rescue Net::ReadTimeout, Net::OpenTimeout
 					puts "post action timeout, try again"
 					sleep 3
 					next
 				end
 			end
-			rbody = JSON.parse(resp.body)
+			resp_body = JSON.parse(resp.body)
 		end
-	end
-end
 
-h = Hangman.new
-while true
-	h.next_word
-	h.guess_word
-	h.get_result
+		private :init_game, :next_word, :guess_word, :guess, :get_result, :submit_result, :post
+	end
 end
